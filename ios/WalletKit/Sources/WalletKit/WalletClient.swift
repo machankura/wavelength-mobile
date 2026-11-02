@@ -61,17 +61,61 @@ public actor WalletClient {
         try decode(await bg { try Bindings.balance() })
     }
 
-    /// Create or import the wallet. An empty mnemonic generates a fresh seed.
+    /// Create or import the wallet. An empty mnemonic and no descriptors
+    /// generates a fresh seed.
+    ///
+    /// Pass `descriptors` instead of `mnemonic` to import private output
+    /// descriptors that share one BIP32 master key, for example
+    /// `tr(xprv.../86h/0h/0h/<0;1>/*)`; they are as sensitive as a seed.
+    /// `birthday` bounds the first rescan of a descriptor import (nil scans
+    /// from genesis) and is ignored for mnemonics.
     public func createWallet(
         walletPassword: Data,
-        mnemonic: [String] = []
+        mnemonic: [String] = [],
+        descriptors: [String] = [],
+        birthday: Date? = nil
     ) async throws -> CreateWalletResult {
+        guard mnemonic.isEmpty || descriptors.isEmpty else {
+            throw WalletError(message: "mnemonic and descriptors are mutually exclusive")
+        }
         let req = CreateWalletReq(
             mnemonic: mnemonic,
-            walletPassword: walletPassword.base64EncodedString()
+            walletPassword: walletPassword.base64EncodedString(),
+            descriptors: descriptors,
+            birthday: birthday.map(WalletClient.rfc3339)
         )
         let body = try encoder.encode(req)
         return try decode(await bg { try Bindings.createWallet(body) })
+    }
+
+    /// The wallet's tr (BIP86) and wpkh (BIP84) output descriptors. By default
+    /// they are public account descriptors, safe for watch-only software. With
+    /// `includePrivate`, also pass the wallet's `mnemonic` (and
+    /// `seedPassphrase`, if one was used) or its private root `descriptors`;
+    /// the daemon checks them against the open wallet before returning private
+    /// descriptors.
+    public func listWalletDescriptors(
+        includePrivate: Bool = false,
+        mnemonic: [String] = [],
+        seedPassphrase: Data? = nil,
+        descriptors: [String] = []
+    ) async throws -> ListWalletDescriptorsResult {
+        let req = ListWalletDescriptorsReq(
+            includePrivate: includePrivate,
+            mnemonic: mnemonic,
+            seedPassphrase: seedPassphrase?.base64EncodedString(),
+            descriptors: descriptors
+        )
+        let body = try encoder.encode(req)
+        return try decode(await bg { try Bindings.listWalletDescriptors(body) })
+    }
+
+    /// Formats a date as RFC 3339 in UTC, the form Go's time.Time decodes.
+    static func rfc3339(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        return formatter.string(from: date)
     }
 
     /// Unlock an existing wallet.
@@ -249,9 +293,26 @@ public actor WalletClient {
 private struct CreateWalletReq: Encodable {
     let mnemonic: [String]
     let walletPassword: String
+    let descriptors: [String]
+    let birthday: String?
     enum CodingKeys: String, CodingKey {
         case mnemonic = "Mnemonic"
         case walletPassword = "WalletPassword"
+        case descriptors = "Descriptors"
+        case birthday = "Birthday"
+    }
+}
+
+private struct ListWalletDescriptorsReq: Encodable {
+    let includePrivate: Bool
+    let mnemonic: [String]
+    let seedPassphrase: String?
+    let descriptors: [String]
+    enum CodingKeys: String, CodingKey {
+        case includePrivate = "IncludePrivate"
+        case mnemonic = "Mnemonic"
+        case seedPassphrase = "SeedPassphrase"
+        case descriptors = "Descriptors"
     }
 }
 

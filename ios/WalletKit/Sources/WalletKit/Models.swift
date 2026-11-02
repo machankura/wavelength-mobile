@@ -76,12 +76,48 @@ public struct Status: Decodable, Sendable {
 public struct CreateWalletResult: Decodable, Sendable {
     public let mnemonic: [String]
     public let identityPubKey: String
+    public let rootFingerprint: String
+    public let descriptors: [String]
     public let recoveryRan: Bool
 
     enum CodingKeys: String, CodingKey {
         case mnemonic = "Mnemonic"
         case identityPubKey = "IdentityPubKey"
+        case rootFingerprint = "RootFingerprint"
+        case descriptors = "Descriptors"
         case recoveryRan = "RecoveryRan"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // Go marshals an empty slice as null and older daemons omit the
+        // descriptor fields, so decode all of them leniently.
+        mnemonic = try c.decodeIfPresent([String].self, forKey: .mnemonic) ?? []
+        identityPubKey = try c.decodeIfPresent(String.self, forKey: .identityPubKey) ?? ""
+        rootFingerprint = try c.decodeIfPresent(String.self, forKey: .rootFingerprint) ?? ""
+        descriptors = try c.decodeIfPresent([String].self, forKey: .descriptors) ?? []
+        recoveryRan = try c.decodeIfPresent(Bool.self, forKey: .recoveryRan) ?? false
+    }
+}
+
+/// The wallet's output descriptors (`listWalletDescriptors`). `descriptors`
+/// contain private keys exactly when `includesPrivate` is true.
+public struct ListWalletDescriptorsResult: Decodable, Sendable {
+    public let rootFingerprint: String
+    public let descriptors: [String]
+    public let includesPrivate: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case rootFingerprint = "RootFingerprint"
+        case descriptors = "Descriptors"
+        case includesPrivate = "IncludesPrivate"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rootFingerprint = try c.decodeIfPresent(String.self, forKey: .rootFingerprint) ?? ""
+        descriptors = try c.decodeIfPresent([String].self, forKey: .descriptors) ?? []
+        includesPrivate = try c.decodeIfPresent(Bool.self, forKey: .includesPrivate) ?? false
     }
 }
 
