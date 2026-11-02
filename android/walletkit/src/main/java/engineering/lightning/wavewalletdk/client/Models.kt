@@ -63,7 +63,20 @@ data class CreateWalletResult(
   @SerialName("Mnemonic") val mnemonic: List<String> = emptyList(),
   @SerialName("EncipheredSeed") val encipheredSeed: String? = null,
   @SerialName("IdentityPubKey") val identityPubKey: String = "",
+  @SerialName("RootFingerprint") val rootFingerprint: String = "",
+  @SerialName("Descriptors") val descriptors: List<String> = emptyList(),
   @SerialName("RecoveryRan") val recoveryRan: Boolean = false,
+)
+
+/**
+ * The wallet's output descriptors (`listWalletDescriptors`). [descriptors]
+ * contain private keys exactly when [includesPrivate] is true.
+ */
+@Serializable
+data class ListWalletDescriptorsResult(
+  @SerialName("RootFingerprint") val rootFingerprint: String = "",
+  @SerialName("Descriptors") val descriptors: List<String> = emptyList(),
+  @SerialName("IncludesPrivate") val includesPrivate: Boolean = false,
 )
 
 /** Result of unlocking a wallet (`unlockWallet`). */

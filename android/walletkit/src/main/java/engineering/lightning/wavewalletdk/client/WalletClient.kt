@@ -50,17 +50,62 @@ class WalletClient(private val json: Json = DEFAULT_JSON) {
   /** Confirmed balance in satoshis, without decoding a JSON payload. */
   suspend fun confirmedBalanceSat(): Long = io { Mobile.confirmedBalanceSat() }
 
-  /** Create or import the wallet. An empty mnemonic generates a fresh seed. */
+  /**
+   * Create or import the wallet. An empty mnemonic and no descriptors
+   * generates a fresh seed.
+   *
+   * Pass [descriptors] instead of [mnemonic] to import private output
+   * descriptors that share one BIP32 master key, for example a `tr()`
+   * descriptor under `86h/0h/0h`; they are as sensitive as a seed.
+   * [birthdayUnixSeconds] bounds the first rescan of a descriptor import
+   * (null scans from genesis) and is ignored for mnemonics.
+   */
   suspend fun createWallet(
     walletPassword: ByteArray,
     mnemonic: List<String> = emptyList(),
+    descriptors: List<String> = emptyList(),
+    birthdayUnixSeconds: Long? = null,
   ): CreateWalletResult {
+    require(mnemonic.isEmpty() || descriptors.isEmpty()) {
+      "mnemonic and descriptors are mutually exclusive"
+    }
     val req = CreateWalletReq(
       mnemonic = mnemonic,
       walletPassword = base64(walletPassword),
+      descriptors = descriptors,
+      birthday = birthdayUnixSeconds?.let(::rfc3339),
     )
     return decode(
       io { Mobile.createWallet(encode(CreateWalletReq.serializer(), req)) },
+    )
+  }
+
+  /**
+   * The wallet's tr (BIP86) and wpkh (BIP84) output descriptors. By default
+   * they are public account descriptors, safe for watch-only software. With
+   * [includePrivate], also pass the wallet's [mnemonic] (and
+   * [seedPassphrase], if one was used) or its private root [descriptors]; the
+   * daemon checks them against the open wallet before returning private
+   * descriptors.
+   */
+  suspend fun listWalletDescriptors(
+    includePrivate: Boolean = false,
+    mnemonic: List<String> = emptyList(),
+    seedPassphrase: ByteArray? = null,
+    descriptors: List<String> = emptyList(),
+  ): ListWalletDescriptorsResult {
+    val req = ListWalletDescriptorsReq(
+      includePrivate = includePrivate,
+      mnemonic = mnemonic,
+      seedPassphrase = seedPassphrase?.let(::base64),
+      descriptors = descriptors,
+    )
+    return decode(
+      io {
+        Mobile.listWalletDescriptors(
+          encode(ListWalletDescriptorsReq.serializer(), req),
+        )
+      },
     )
   }
 
@@ -235,6 +280,17 @@ class WalletClient(private val json: Json = DEFAULT_JSON) {
 
     private fun base64(b: ByteArray): String = Base64.encodeToString(b, Base64.NO_WRAP)
 
+    // Go's time.Time decodes RFC 3339 text. java.time needs API 26, above
+    // minSdk, so format with SimpleDateFormat in UTC.
+    internal fun rfc3339(unixSeconds: Long): String {
+      val format = java.text.SimpleDateFormat(
+        "yyyy-MM-dd'T'HH:mm:ss'Z'",
+        java.util.Locale.US,
+      )
+      format.timeZone = java.util.TimeZone.getTimeZone("UTC")
+      return format.format(java.util.Date(unixSeconds * 1000))
+    }
+
     private fun isEndOfStream(e: Exception): Boolean =
       e.message?.contains("EOF", ignoreCase = true) == true
   }
@@ -244,6 +300,16 @@ class WalletClient(private val json: Json = DEFAULT_JSON) {
 private data class CreateWalletReq(
   @SerialName("Mnemonic") val mnemonic: List<String> = emptyList(),
   @SerialName("WalletPassword") val walletPassword: String,
+  @SerialName("Descriptors") val descriptors: List<String> = emptyList(),
+  @SerialName("Birthday") val birthday: String? = null,
+)
+
+@Serializable
+private data class ListWalletDescriptorsReq(
+  @SerialName("IncludePrivate") val includePrivate: Boolean = false,
+  @SerialName("Mnemonic") val mnemonic: List<String> = emptyList(),
+  @SerialName("SeedPassphrase") val seedPassphrase: String? = null,
+  @SerialName("Descriptors") val descriptors: List<String> = emptyList(),
 )
 
 @Serializable
