@@ -90,6 +90,52 @@ _ = try await client.createWallet(
 )
 ```
 
+### Restore from output descriptors
+
+A wallet can also be built from private output descriptors that share one
+BIP32 master key, instead of a mnemonic. Pass `descriptors` (never together
+with `mnemonic`) and an optional birthday so the first rescan does not start
+from genesis. The response carries no mnemonic; `descriptors` holds the public
+descriptors the wallet watches. Private descriptors are as sensitive as a seed:
+keep them in the Android Keystore or the iOS Keychain, never in plain files or
+logs.
+
+```kotlin
+// Kotlin: restore from descriptors
+val res = client.createWallet(
+    walletPassword = "my-password".toByteArray(),
+    descriptors = listOf(
+        "tr(xprv.../86h/0h/0h/<0;1>/*)#checksum",
+        "wpkh(xprv.../84h/0h/0h/<0;1>/*)#checksum",
+    ),
+    birthdayUnixSeconds = 1_767_225_600, // 2026-01-01
+)
+println("watch-only descriptors: ${res.descriptors}")
+```
+
+```swift
+// Swift: restore from descriptors
+let res = try await client.createWallet(
+    walletPassword: Data("my-password".utf8),
+    descriptors: [
+        "tr(xprv.../86h/0h/0h/<0;1>/*)#checksum",
+        "wpkh(xprv.../84h/0h/0h/<0;1>/*)#checksum",
+    ],
+    birthday: Date(timeIntervalSince1970: 1_767_225_600)
+)
+print("watch-only descriptors: \(res.descriptors)")
+```
+
+The daemon accepts `tr()` under `86h/0h/0h` and `wpkh()` under `84h/0h/0h`,
+with coin type `0'` on every network and account 0. Watch-only (`xpub`) and
+account-level descriptors are refused.
+
+`listWalletDescriptors()` returns the open wallet's public descriptors. To get
+the private ones, for example to move a mnemonic wallet into descriptor-based
+software, pass `includePrivate = true` with the wallet's `mnemonic` (or its
+private root `descriptors`); the daemon checks them against the open wallet
+first.
+
 ## 4. Unlock an existing wallet
 
 On later launches the seed already exists; unlock it with the same password.
@@ -428,7 +474,8 @@ func firstRun(_ client: WalletClient, dataDir: String) async throws {
 | `Info` | `network`, `blockHeight`, `serverConnected`, `walletState`, `walletReady`, `identityPubKey` |
 | `Balance` | `confirmedSat`, `pendingInSat`, `pendingOutSat` |
 | `Status` | `ready`, `unlocked`, `network`, `balance`, `pendingCount` |
-| `CreateWalletResult` | `mnemonic`, `identityPubKey`, `recoveryRan` |
+| `CreateWalletResult` | `mnemonic`, `identityPubKey`, `rootFingerprint`, `descriptors`, `recoveryRan` |
+| `ListWalletDescriptorsResult` | `rootFingerprint`, `descriptors`, `includesPrivate` |
 | `UnlockWalletResult` | `identityPubKey` |
 | `ReceiveResult` | `invoice`, `entry` |
 | `DepositResult` | `address`, `entry` |
