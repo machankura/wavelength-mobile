@@ -34,6 +34,7 @@ data class Info(
   @SerialName("WalletType") val walletType: String = "",
   @SerialName("WalletState") val walletStateCode: Int = 0,
   @SerialName("IdentityPubKey") val identityPubKey: String = "",
+  @SerialName("ManifestHash") val manifestHash: String = "",
 ) {
   val walletState: WalletState get() = WalletState.fromCode(walletStateCode)
   val walletReady: Boolean get() = walletState == WalletState.READY
@@ -65,6 +66,7 @@ data class CreateWalletResult(
   @SerialName("IdentityPubKey") val identityPubKey: String = "",
   @SerialName("RootFingerprint") val rootFingerprint: String = "",
   @SerialName("Descriptors") val descriptors: List<String> = emptyList(),
+  @SerialName("ManifestHash") val manifestHash: String = "",
   @SerialName("RecoveryRan") val recoveryRan: Boolean = false,
 )
 

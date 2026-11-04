@@ -57,23 +57,37 @@ class WalletClient(private val json: Json = DEFAULT_JSON) {
    * Pass [descriptors] instead of [mnemonic] to import private output
    * descriptors that share one BIP32 master key, for example a `tr()`
    * descriptor under `86h/0h/0h`; they are as sensitive as a seed.
-   * [birthdayUnixSeconds] bounds the first rescan of a descriptor import
-   * (null scans from genesis) and is ignored for mnemonics.
+   * [birthdayUnixSeconds] bounds the first rescan of an import (null scans
+   * from genesis) and is ignored for mnemonics.
+   *
+   * Pass [watchOnlyBundle], or [watchOnlyManifest] with its [authKeys], to
+   * create a watch-only wallet whose keys stay on the remote signer named in
+   * [WalletConfig]. [overrideIdentity] lets a manifest replace the identity
+   * family. A minimal bundle and [authKeys] hold private authentication keys,
+   * so treat them as secrets. If the signer is unreachable nothing is stored,
+   * so call this again once it is back. If it holds other keys the wallet is
+   * left locked ([getInfo] reports [WalletState.LOCKED]), so restart with the
+   * right signer settings and use [unlockWallet].
    */
   suspend fun createWallet(
     walletPassword: ByteArray,
     mnemonic: List<String> = emptyList(),
     descriptors: List<String> = emptyList(),
     birthdayUnixSeconds: Long? = null,
+    watchOnlyBundle: String? = null,
+    watchOnlyManifest: String? = null,
+    authKeys: String? = null,
+    overrideIdentity: Boolean = false,
   ): CreateWalletResult {
-    require(mnemonic.isEmpty() || descriptors.isEmpty()) {
-      "mnemonic and descriptors are mutually exclusive"
-    }
-    val req = CreateWalletReq(
-      mnemonic = mnemonic,
-      walletPassword = base64(walletPassword),
-      descriptors = descriptors,
-      birthday = birthdayUnixSeconds?.let(::rfc3339),
+    val req = createWalletReq(
+      walletPassword,
+      mnemonic,
+      descriptors,
+      birthdayUnixSeconds,
+      watchOnlyBundle,
+      watchOnlyManifest,
+      authKeys,
+      overrideIdentity,
     )
     return decode(
       io { Mobile.createWallet(encode(CreateWalletReq.serializer(), req)) },
@@ -282,6 +296,62 @@ class WalletClient(private val json: Json = DEFAULT_JSON) {
 
     private fun base64(b: ByteArray): String = Base64.encodeToString(b, Base64.NO_WRAP)
 
+    // Enforces the daemon's rules, so a host gets a clear message without
+    // booting, and builds the request. toBase64 is a parameter because
+    // android.util.Base64 is not available to unit tests, and java.util.Base64
+    // needs API 26, above minSdk.
+    internal fun createWalletReq(
+      walletPassword: ByteArray,
+      mnemonic: List<String> = emptyList(),
+      descriptors: List<String> = emptyList(),
+      birthdayUnixSeconds: Long? = null,
+      watchOnlyBundle: String? = null,
+      watchOnlyManifest: String? = null,
+      authKeys: String? = null,
+      overrideIdentity: Boolean = false,
+      toBase64: (ByteArray) -> String = ::base64,
+    ): CreateWalletReq {
+      require(mnemonic.isEmpty() || descriptors.isEmpty()) {
+        "mnemonic and descriptors are mutually exclusive"
+      }
+      val isWatchOnly = watchOnlyBundle != null || watchOnlyManifest != null ||
+        authKeys != null || overrideIdentity
+      if (isWatchOnly) {
+        require(mnemonic.isEmpty() && descriptors.isEmpty()) {
+          "a watch-only wallet cannot also have a mnemonic or descriptors"
+        }
+        require(walletPassword.isNotEmpty()) {
+          "a watch-only wallet needs a wallet password"
+        }
+        require(watchOnlyBundle?.isEmpty() != true) {
+          "watchOnlyBundle must not be empty"
+        }
+        require(watchOnlyManifest?.isEmpty() != true) {
+          "watchOnlyManifest must not be empty"
+        }
+        require(authKeys?.isEmpty() != true) { "authKeys must not be empty" }
+        require((watchOnlyBundle == null) != (watchOnlyManifest == null)) {
+          "exactly one of watchOnlyBundle and watchOnlyManifest is required"
+        }
+        require(watchOnlyManifest == null || authKeys != null) {
+          "a watchOnlyManifest requires its authKeys"
+        }
+        require(watchOnlyBundle == null || (authKeys == null && !overrideIdentity)) {
+          "authKeys and overrideIdentity apply only to a watchOnlyManifest"
+        }
+      }
+      return CreateWalletReq(
+        mnemonic = mnemonic,
+        walletPassword = toBase64(walletPassword),
+        descriptors = descriptors,
+        birthday = birthdayUnixSeconds?.let(::rfc3339),
+        watchOnlyBundle = watchOnlyBundle?.let { toBase64(it.toByteArray()) },
+        watchOnlyManifest = watchOnlyManifest?.let { toBase64(it.toByteArray()) },
+        authKeys = authKeys?.let { toBase64(it.toByteArray()) },
+        overrideIdentity = overrideIdentity,
+      )
+    }
+
     // Go's time.Time decodes RFC 3339 text. java.time needs API 26, above
     // minSdk, so format with SimpleDateFormat in UTC.
     internal fun rfc3339(unixSeconds: Long): String {
@@ -299,11 +369,15 @@ class WalletClient(private val json: Json = DEFAULT_JSON) {
 }
 
 @Serializable
-private data class CreateWalletReq(
+internal data class CreateWalletReq(
   @SerialName("Mnemonic") val mnemonic: List<String> = emptyList(),
   @SerialName("WalletPassword") val walletPassword: String,
   @SerialName("Descriptors") val descriptors: List<String> = emptyList(),
   @SerialName("Birthday") val birthday: String? = null,
+  @SerialName("WatchOnlyBundle") val watchOnlyBundle: String? = null,
+  @SerialName("WatchOnlyManifest") val watchOnlyManifest: String? = null,
+  @SerialName("AuthKeys") val authKeys: String? = null,
+  @SerialName("OverrideIdentity") val overrideIdentity: Boolean = false,
 )
 
 @Serializable
