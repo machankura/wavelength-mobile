@@ -10,6 +10,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.example.wavewalletdksample.theme.WavewalletdkSampleTheme
 import com.example.wavewalletdksample.ui.main.WalletDemoScreen
+import java.io.File
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -22,7 +23,10 @@ class MainActivity : ComponentActivity() {
           modifier = Modifier.fillMaxSize(),
           color = MaterialTheme.colorScheme.background,
         ) {
-          WalletDemoScreen(dataDir = filesDir)
+          WalletDemoScreen(
+            dataDir = filesDir,
+            signerDir = File(noBackupFilesDir, "signer"),
+          )
         }
       }
     }
