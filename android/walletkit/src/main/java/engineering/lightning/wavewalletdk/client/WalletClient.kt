@@ -273,9 +273,11 @@ class WalletClient(private val json: Json = DEFAULT_JSON) {
   ): ByteArray = json.encodeToString(serializer, value).toByteArray()
 
   companion object {
-    private val DEFAULT_JSON = Json {
+    internal val DEFAULT_JSON = Json {
       ignoreUnknownKeys = true
       explicitNulls = false
+      // Go marshals a nil slice as null; read it as the property's default.
+      coerceInputValues = true
     }
 
     private fun base64(b: ByteArray): String = Base64.encodeToString(b, Base64.NO_WRAP)
