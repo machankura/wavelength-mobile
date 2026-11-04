@@ -17,6 +17,16 @@ public struct WalletConfig: Encodable, Sendable {
     public var debugLevel: String?
     public var allowMainnet: Bool?
 
+    // A remote signer holds the keys of a watch-only wallet. The daemon always
+    // dials out to it, and contacts it on create and unlock. The macaroon and
+    // certificate paths must be plain file paths (`URL.path`), because Go opens
+    // them directly; a file:// URL string only fails later, at unlock.
+    public var remoteSignerRPCHost: String?
+    public var remoteSignerMacaroonPath: String?
+    public var remoteSignerTLSCertPath: String?
+    public var remoteSignerConnectTimeoutSeconds: Int64?
+    public var remoteSignerRequestTimeoutSeconds: Int64?
+
     enum CodingKeys: String, CodingKey {
         case dataDir = "data_dir"
         case network = "network"
@@ -29,6 +39,11 @@ public struct WalletConfig: Encodable, Sendable {
         case swapServerAddress = "swap_server_address"
         case debugLevel = "debug_level"
         case allowMainnet = "allow_mainnet"
+        case remoteSignerRPCHost = "remote_signer_rpc_host"
+        case remoteSignerMacaroonPath = "remote_signer_macaroon_path"
+        case remoteSignerTLSCertPath = "remote_signer_tls_cert_path"
+        case remoteSignerConnectTimeoutSeconds = "remote_signer_connect_timeout_seconds"
+        case remoteSignerRequestTimeoutSeconds = "remote_signer_request_timeout_seconds"
     }
 
     /// A signet config for the lightweight (Esplora-backed) wallet. Endpoints
