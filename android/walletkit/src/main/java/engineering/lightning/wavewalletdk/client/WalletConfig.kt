@@ -26,6 +26,20 @@ data class WalletConfig(
 
   @SerialName("debug_level") val debugLevel: String? = null,
   @SerialName("allow_mainnet") val allowMainnet: Boolean? = null,
+
+  // A remote signer holds the keys of a watch-only wallet. The daemon always
+  // dials out to it, and contacts it on create and unlock. The macaroon and
+  // certificate paths must be plain file paths, because Go opens them directly;
+  // a content:// or file:// URI only fails later, at unlock.
+  @SerialName("remote_signer_rpc_host") val remoteSignerRpcHost: String? = null,
+  @SerialName("remote_signer_macaroon_path")
+  val remoteSignerMacaroonPath: String? = null,
+  @SerialName("remote_signer_tls_cert_path")
+  val remoteSignerTlsCertPath: String? = null,
+  @SerialName("remote_signer_connect_timeout_seconds")
+  val remoteSignerConnectTimeoutSeconds: Long? = null,
+  @SerialName("remote_signer_request_timeout_seconds")
+  val remoteSignerRequestTimeoutSeconds: Long? = null,
 ) {
   companion object {
     /**
