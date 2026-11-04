@@ -15,6 +15,11 @@ embedded wallet across a private in-memory gRPC channel, so nothing ever listens
 on a socket. This repo holds the idiomatic Kotlin and Swift wrappers over the
 gomobile bindings, plus sample apps that drive them end to end.
 
+A wallet can come from a new seed, a mnemonic or private output descriptors. It
+can also be watch-only, with its keys on a remote signer such as `wavesigner`, so
+a lost phone cannot spend the funds. See
+[`docs/api-guide.md`](docs/api-guide.md#watch-only-wallets).
+
 ## How the pieces fit
 
 ```mermaid

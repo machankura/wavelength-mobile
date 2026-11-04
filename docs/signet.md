@@ -32,6 +32,38 @@ Verified end to end on an emulator: the embedded wallet connects to the operator
 over TLS, fetches operator terms, and starts the durable mailbox ingress loop,
 while the Esplora-backed wallet syncs to the signet tip.
 
+## A signer for watch-only wallets
+
+To try a watch-only wallet, run `wavesigner` from a `wavelength` checkout on the
+host machine. `wallet.mnemonic` holds a throwaway 24-word mnemonic for this test
+only; `create` also takes `--descriptor-file`. An emulator reaches the host at
+`10.0.2.2`, a simulator at `localhost`, and a device at the host's address, and
+whichever you use must be in the signer's certificate:
+
+```bash
+export WAVESIGNER_PASSWORD=test-password-only
+wavesigner --network=signet create --mnemonic-file wallet.mnemonic
+wavesigner --network=signet export-watchonly --output signer.bundle
+wavesigner --network=signet run --listen=0.0.0.0:10019 --tlsextraip=10.0.2.2
+```
+
+`signer.macaroon` and `tls.cert` are written to `~/.wavesigner/signet/` when `run`
+first starts. In a sample app, choose **Watch-only…** and paste the host, the bundle
+and the certificate, and the macaroon as hex (`xxd -p -c0 signer.macaroon`). A
+certificate that already exists is not regenerated, so delete `tls.cert` and
+`tls.key` if you add an address later.
+
+For a manifest, use a signer store with overrides in a separate data directory. The
+key files hold private keys for those fund slots; `docs/daemon_cli_guide.md` in
+`wavelength`, under "Fund slots from other keys (manifests)", describes their format:
+
+```bash
+wavesigner --network=signet --datadir=/tmp/signer2 create \
+  --mnemonic-file wallet.mnemonic --override onchain=cold-a.key
+wavesigner --network=signet --datadir=/tmp/signer2 export-watchonly \
+  --manifest-out wallet.manifest --auth-keys-out auth.keys
+```
+
 ## Standard signet vs mutinynet
 
 `waved` maps the network name `signet` to **standard** `chaincfg.SigNetParams`.
@@ -46,3 +78,7 @@ Supporting mutinynet requires wiring a configurable signet challenge into
   (like the default) works directly.
 - First sync downloads a lot of headers; give it time and watch the `sync:`
   log lines.
+- Public Esplora servers rate-limit. A few wallets syncing from scratch on one
+  address can trip the limit, and then opening a wallet fails at `get tip height`
+  with an HTTP 429 or a timeout, leaving it locked. Unlock works again once the
+  limit clears. For repeated testing, point `esploraUrl` at your own server.

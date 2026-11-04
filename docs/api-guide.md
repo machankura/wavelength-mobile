@@ -127,14 +127,115 @@ print("watch-only descriptors: \(res.descriptors)")
 ```
 
 The daemon accepts `tr()` under `86h/0h/0h` and `wpkh()` under `84h/0h/0h`,
-with coin type `0'` on every network and account 0. Watch-only (`xpub`) and
-account-level descriptors are refused.
+with coin type `0'` on every network and account 0.
+
+It also accepts account-level private keys, for when other software holds the
+seed and exports only accounts. Ark keys live under key families at
+`m/1017'/coin'/family'`, where `coin` is `0` on mainnet and `1` elsewhere, so an
+account key alone cannot produce them. Supply the BIP86 account with its key
+origin, and the families either as one coin-level key or as one entry for every
+family 0 to 255:
+
+```
+tr([d34db33f/86h/0h/0h]xprv.../<0;1>/*)
+wpkh([d34db33f/84h/0h/0h]xprv.../<0;1>/*)
+[d34db33f/1017h/0h]xprv...
+```
+
+The `wpkh()` line is optional. A partial set is refused, because the wallet needs
+every key family, and so is an account key with no origin, since it is read as a
+master key. `xpub` descriptors are refused too, because a wallet built this way
+holds its own keys; to keep the keys elsewhere, open a
+[watch-only wallet](#watch-only-wallets).
 
 `listWalletDescriptors()` returns the open wallet's public descriptors. To get
 the private ones, for example to move a mnemonic wallet into descriptor-based
 software, pass `includePrivate = true` with the wallet's `mnemonic` (or its
 private root `descriptors`); the daemon checks them against the open wallet
 first.
+
+### Watch-only wallets
+
+A watch-only wallet holds only public keys and asks a remote signer, such as
+`wavesigner`, to sign, so a lost phone cannot spend the funds. The phone always
+dials out to the signer, so the app still opens no port.
+
+The signer exports what the wallet is created from: a bundle, or a manifest with
+its authentication keys when the wallet's fund slots come from several keys. A
+minimal bundle and the authentication keys hold private keys used for routine Ark
+server authentication, so keep them in the Android Keystore or the iOS Keychain,
+never in plain files or logs. WalletKit does not store them, and after the first
+open only the password is needed, because the wallet database holds the public
+keys.
+
+Put the signer's settings in the config before `start`, then create the wallet:
+
+```kotlin
+// Kotlin
+val config = WalletConfig.signet(dataDir = dir).copy(
+    remoteSignerRpcHost = "signer.example:10019",
+    remoteSignerMacaroonPath = "${context.noBackupFilesDir}/signer/signer.macaroon",
+    remoteSignerTlsCertPath = "${context.noBackupFilesDir}/signer/tls.cert",
+)
+client.start(config)
+val res = client.createWallet(
+    walletPassword = "my-password".toByteArray(),
+    watchOnlyBundle = bundleText,      // or watchOnlyManifest + authKeys
+    birthdayUnixSeconds = 1_767_225_600,
+)
+println("identity: ${res.identityPubKey}, manifest: ${res.manifestHash}")
+```
+
+```swift
+// Swift
+var config = WalletConfig.signet(dataDir: dir)
+config.remoteSignerRPCHost = "signer.example:10019"
+config.remoteSignerMacaroonPath = signerDir.appendingPathComponent("signer.macaroon").path
+config.remoteSignerTLSCertPath = signerDir.appendingPathComponent("tls.cert").path
+try await client.start(config)
+let res = try await client.createWallet(
+    walletPassword: Data("my-password".utf8),
+    birthday: Date(timeIntervalSince1970: 1_767_225_600),
+    watchOnlyBundle: bundleText       // or watchOnlyManifest + authKeys
+)
+print("identity: \(res.identityPubKey), manifest: \(res.manifestHash)")
+```
+
+Pass `overrideIdentity` as well only for a manifest that replaces the identity
+family. `manifestHash` identifies the manifest that created the wallet, and is
+empty for a bundle. It is the SHA-256 of the manifest file, and `getInfo` reports
+it too.
+
+**Use real file paths.** Go opens the macaroon and certificate directly on every
+start, so pass a plain path. A `content://` or `file://` URI only fails later, at
+unlock. Keep them out of backups: use `noBackupFilesDir` on Android, and on iOS
+set `isExcludedFromBackup` and complete file protection. Android Auto Backup
+otherwise copies `filesDir` by default, unless the app sets
+`android:allowBackup="false"`.
+
+**On later launches**, `start` with the same config, then `unlockWallet`. The
+daemon has the signer sign a challenge with each key slot on every create and
+unlock, and `start` itself does not contact the signer. Signer failures come back
+as ordinary errors, so show them with a retry rather than as a wrong password:
+
+| What happened | Message contains | What to do |
+|---|---|---|
+| Signer unreachable | `connect to remote signer`, after the 30 second connect timeout | Retry when it is back. Keep the screen visibly busy for that long; `remoteSignerConnectTimeoutSeconds` sets it |
+| Signer holds other keys | `signer does not hold the key for a wallet slot`, naming each slot | Fix the signer settings and retry |
+
+**The first open fails in two ways.** If the signer was unreachable, nothing is
+stored, so `getInfo` reports no wallet and `createWallet` is the retry. If the
+signer held other keys, the database was already created, so `getInfo` reports
+`locked`, `createWallet` can only fail, and `unlockWallet` is the retry, after a
+`stop` and `start` with the right settings. Any other failure after that point,
+such as an unreachable chain backend, also leaves a locked wallet, on every kind of
+wallet. Check the state rather than assuming one.
+
+**Exporting private descriptors.** `listWalletDescriptors()` returns public
+descriptors as usual. A watch-only wallet has no private keys to export, so
+`includePrivate = true` is refused without credentials. If you supply its root
+descriptors, the daemon checks them against the wallet and returns the private
+descriptors derived from what you supplied; other keys are refused.
 
 ## 4. Unlock an existing wallet
 
@@ -410,6 +511,12 @@ client.stop()   // Kotlin
 try await client.stop()   // Swift
 ```
 
+Do this when the app leaves the foreground. A daemon left running while its process
+is suspended keeps its connections frozen on their old network path, and the Go code
+cannot see the app's lifecycle, so the app has to act: `stop` on the way out, then
+`start` and `unlockWallet` on the way back. A watch-only wallet needs its signer
+again at that point. Both sample apps show this.
+
 ## 14. Handle errors
 
 A failed call throws: `WalletException` in Kotlin, `WalletError` in Swift, each
@@ -471,10 +578,10 @@ func firstRun(_ client: WalletClient, dataDir: String) async throws {
 
 | Type | Key fields |
 |------|-----------|
-| `Info` | `network`, `blockHeight`, `serverConnected`, `walletState`, `walletReady`, `identityPubKey` |
+| `Info` | `network`, `blockHeight`, `serverConnected`, `walletState`, `walletReady`, `identityPubKey`, `manifestHash` |
 | `Balance` | `confirmedSat`, `pendingInSat`, `pendingOutSat` |
 | `Status` | `ready`, `unlocked`, `network`, `balance`, `pendingCount` |
-| `CreateWalletResult` | `mnemonic`, `identityPubKey`, `rootFingerprint`, `descriptors`, `recoveryRan` |
+| `CreateWalletResult` | `mnemonic`, `identityPubKey`, `rootFingerprint`, `descriptors`, `manifestHash`, `recoveryRan` |
 | `ListWalletDescriptorsResult` | `rootFingerprint`, `descriptors`, `includesPrivate` |
 | `UnlockWalletResult` | `identityPubKey` |
 | `ReceiveResult` | `invoice`, `entry` |

@@ -29,6 +29,12 @@ manage.
 └───────────────────────────────────────────────────────┘
 ```
 
+A watch-only wallet adds one outbound connection: the daemon dials a remote signer
+over gRPC and TLS, on every create and unlock and whenever it needs a signature. It
+reads the signer's macaroon and certificate from file paths in the config, and holds
+only public keys and, with a minimal bundle or a manifest, its Ark authentication
+keys. The phone dials out, so nothing listens here either.
+
 ## Why a thin facade, and what it hides
 
 `gomobile bind` carries only a narrow set of types across the boundary between
@@ -79,6 +85,11 @@ One daemon runs per process. `start` is guarded by a compare-and-swap: a second
 `stop` tears the daemon down, cancels an internal context that unblocks any
 in-flight `next()`, and resets the guard so the app can start again after the
 operating system suspends and resumes it.
+
+The Go code cannot see the app's lifecycle, and connections are left frozen on their
+old network path while the process is suspended. So the app stops the daemon when it
+leaves the foreground, and starts and unlocks it on the way back, which the sample
+apps show.
 
 A panic inside the Go code would otherwise kill the whole app, since panics do
 not cross the JNI boundary. The facade recovers panics in `start` and in
