@@ -27,16 +27,19 @@ a clear signer error instead of a password error.
 ## Progress
 
 - [x] (2026-11-04) Descriptor restore and export in both wrappers (commits
-  `db61c3c`, `54159a7`), documented in `docs/api-guide.md` (`3fd5bd5`). Tested only by
-  Android format tests; not run on a device.
-- [ ] Milestone 0: build the bindings from the daemon's `descriptors` branch.
-- [ ] Milestone 1: remote signer settings in `WalletConfig` on both platforms.
-- [ ] Milestone 2: watch-only `createWallet` and manifest hash, Android.
-- [ ] Milestone 3: the same for iOS, with a first Swift test target.
-- [ ] Milestone 4: descriptors and watch-only in the Android sample.
-- [ ] Milestone 5: descriptors and watch-only in the iOS sample.
-- [ ] Milestone 6: documentation.
-- [ ] Milestone 7: test against released binaries.
+  `db61c3c`, `54159a7`), documented in `docs/api-guide.md` (`3fd5bd5`).
+- [x] (2026-11-04) Milestone 0: `.aar` built from the daemon's `descriptors` branch at
+  `6786ea4b`. The `.xcframework` was not built, as it needs macOS.
+- [x] (2026-11-04) Milestone 1: remote signer settings on both platforms. Android tested;
+  Swift not compiled.
+- [x] (2026-11-04) Milestone 2: watch-only `createWallet` and manifest hash, Android.
+- [ ] Milestone 3: written, including the `WalletKitTests` target, but **never compiled or
+  run**. Needs macOS and Xcode.
+- [x] (2026-11-04) Milestone 4: Android sample, run on an emulator against signet. The
+  unlock of a fresh-seed wallet could not be run, see Outcomes.
+- [ ] Milestone 5: written, but **never compiled or run**. Needs macOS and Xcode.
+- [x] (2026-11-04) Milestone 6: documentation.
+- [ ] Milestone 7: blocked until `wavelength` publishes a release containing `descriptors`.
 
 
 ## Surprises & Discoveries
@@ -61,6 +64,44 @@ These were found while writing this plan, from reading the code on 2026-11-04.
   Evidence: `scripts/fetch-aar.sh` header, and `v0.2.1` is not an ancestor of the daemon's
   `descriptors` branch.
 
+- Observation: Android descriptor restore could not have worked as first merged. A descriptor
+  import returns `"Mnemonic":null`, the decoder refused it, and `createWallet` threw after the
+  wallet had been created. Swift was already lenient.
+  Evidence: `goNullSlicesDecodeAsEmptyLists` failed with `Expected start of the array '['` at
+  `$.Mnemonic` until `coerceInputValues` was set.
+
+- Observation: `android.util.Base64` is not available to unit tests, and `java.util.Base64`
+  needs API 26, above minSdk. So the request is built in `createWalletReq`, which takes its
+  encoder.
+  Evidence: `WalletClient.kt`.
+
+- Observation: The `.xcframework` has iOS slices only, so `swift test` as this plan first said
+  cannot link it. Tests must run on a simulator through `xcodebuild`.
+  Evidence: `-target=ios,iossimulator` in `gen_bindings.sh`.
+
+- Observation: A first open fails in two ways, and the recovery differs. An unreachable signer
+  stores nothing: the state stays `none`, `unlockWallet` fails with `wallet is not locked`, and
+  creating again works. A signer holding other keys, or any later failure such as an unreachable
+  or rate-limiting Esplora, leaves the database created: the state is `locked`, and only unlock works.
+  Evidence: emulator runs, and the daemon's message `the wallet database was created; retry via
+  UnlockWallet`. `wavelength-sdk`'s `use-a-remote-signer.mdx` says any signer failure leaves a
+  locked wallet, which is not true of an unreachable signer.
+
+- Observation: A private export on a watch-only wallet is not simply refused, as this plan
+  expected. With no credentials it fails with `include_private requires the wallet's mnemonic or
+  root descriptors`, and with other keys `the supplied seed material does not belong to this
+  wallet`, but with the wallet's own root descriptors it returns private descriptors derived from
+  them. Nothing leaks, because the caller already held those keys.
+  Evidence: a scratch button on the emulator, not committed.
+
+- Observation: SwiftUI's secure field is single-line, so it cannot take a bundle.
+  Evidence: `SecureField` is backed by a single-line text field. Hence `PasteField`, which also
+  clears the clipboard. Not seen running.
+
+- Observation: The iOS sample keeps its wallet database in `Documents`, which iOS backs up. This
+  predates the plan and is unchanged here, while the signer files are excluded. Worth deciding
+  separately.
+  Evidence: `dataDir` in `ContentView.swift`.
 
 ## Decision Log
 
@@ -83,11 +124,59 @@ These were found while writing this plan, from reading the code on 2026-11-04.
   Rationale: CI for gomobile binaries is its own project. Note it as a follow-up.
   Date/Author: 2026-11-04, plan author.
 
+- Decision: The sample's "Open watch-only wallet" action restarts the daemon, then unlocks if
+  `getInfo` says `locked` and creates otherwise.
+  Rationale: The two first-open failures need different retries, and one action that checks the
+  state is right for both, and lets a wrong signer be corrected from the same form.
+  Date/Author: 2026-11-04, implementer.
+
+- Decision: Reach watch-only wallets through `start`, `createWallet` and `unlockWallet` stands.
+  Rationale: Milestone 4 ran it end to end, with bundles and manifests, so the atomic verb is not
+  needed.
+  Date/Author: 2026-11-04, implementer.
+
+- Decision: The samples take a pasted macaroon as hex.
+  Rationale: It is binary, so it cannot be pasted otherwise. `wavelength-sdk`'s demo does the same.
+  Date/Author: 2026-11-04, implementer.
+
 
 ## Outcomes & Retrospective
 
-Nothing from this plan has been implemented yet. Fill this in at each milestone and at
-the end.
+The Android half works on a real runtime; the iOS half is written and has never been compiled.
+This branch cannot merge until Milestone 7, because released binaries lack these verbs.
+
+Emulator results on signet, `wavelength` at `6786ea4b`, against throwaway signers. The restore and
+signer checks ran on a build with a scratch prefill and probe button; the committed source differs
+only by removing those.
+
+1. Descriptor restore: fingerprint `5bf9f809` and two public descriptors.
+2. Export: `tr(` and `wpkh(` lines, none with `prv`.
+3. Kill and relaunch, then unlock: same identity, `0309b8ec...9e649909`, matching the web and
+   React Native runs from the same keys. Backgrounding and returning also reopened it.
+4. Watch-only bundle: same identity, 2 public descriptors, empty manifest hash.
+5. Manifest: identity `0370f437...0a44b0af`, and the manifest hash equals the file's SHA-256,
+   `f5907ad6...19534322`. Unlock after a relaunch keeps it.
+6. Signer down while backgrounded: returning fails after 34 s with `connect to remote signer`,
+   and after restarting the signer Unlock opens in 2 s.
+7. Another signer's credentials: refused in 6 s, naming each slot, and the right settings then open
+   it from the same form.
+8. `tprv` or `xprv` in logcat during all of this: none. A malformed descriptor's error does not
+   echo the key.
+
+Signer files in `no_backup/signer` are `-rw-------` in a `drwx------` directory.
+
+Not verified:
+
+- Anything on iOS, including the acceptance list, `WalletKitTests` and the Swift compiling at all.
+- Unlocking a fresh-seed wallet on the final build. `mempool.space` stopped answering partway through,
+  from the host as well, so a scratch build pointed at `blockstream.info` instead. There `createWallet`
+  gave 24 seed words, and that wallet's sync then drew HTTP 429, so its unlock failed at `get tip height`.
+  Probably these repeated syncs tripped both servers' limits, though `mempool.space` gave no status to
+  confirm it. Unlock itself passed above, on descriptor and watch-only wallets.
+- A real payment or Ark round through a signer.
+
+Follow-ups: CI for these binaries, the iOS `Documents` backup question above, and the imprecise
+sentence in `wavelength-sdk`'s remote signer guide.
 
 
 ## Context and Orientation
@@ -190,13 +279,13 @@ the descriptor fields already do, so older daemons still parse. The private `Cre
 the four fields.
 
 iOS has no tests, and the logic added here is exactly what tests should cover, so add a
-`WalletKitTests` target to `ios/WalletKit/Package.swift`. If linking the binary target makes the test
-target need the `.xcframework` present, have it skip with a clear message when absent. Cover the
-validation rules, the JSON of `WalletConfig` and `CreateWalletReq`, and the lenient decoding,
-including the descriptor fields already merged without tests.
+`WalletKitTests` target to `ios/WalletKit/Package.swift`. It needs the `.xcframework` present, like
+the package itself. Cover the validation rules, the JSON of `WalletConfig` and `CreateWalletReq`, and
+the lenient decoding, including the descriptor fields already merged without tests.
 
-The result, on a Mac: `swift test` in `ios/WalletKit` passes. On any other machine this milestone
-cannot be verified, so record that plainly in `Progress` instead of marking it done.
+The result, on a Mac: `xcodebuild test` passes on a simulator, as in Concrete Steps. On any other
+machine this milestone cannot be verified, so record that plainly in `Progress` instead of marking
+it done.
 
 ### Milestone 4: Android sample
 
@@ -257,7 +346,8 @@ and JDK 17 or newer, as `docs/android.md` describes.
 Expect `BUILD SUCCESSFUL`. On a Mac:
 
     scripts/fetch-xcframework.sh
-    cd ios/WalletKit && swift test
+    cd ios/WalletKit
+    xcodebuild test -scheme WalletKit -destination 'platform=iOS Simulator,name=iPhone 16'
 
 To stand up a signer on the host. An emulator reaches the host at `10.0.2.2`, which must be in the
 signer's certificate:
@@ -361,3 +451,6 @@ Match the existing parameter names when they differ from these sketches.
 
 Revision note (2026-11-04): first version, written from the `descriptors` branch here and in
 `wavelength`.
+
+Revision note (2026-11-04): recorded the implementation through Milestone 6 and the Android emulator
+results. Replaced `swift test` with `xcodebuild test`, because the framework has no macOS slice.
