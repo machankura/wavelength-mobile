@@ -26,6 +26,7 @@ public struct Info: Decodable, Sendable {
     public let walletType: String
     public let walletStateCode: Int
     public let identityPubKey: String
+    public let manifestHash: String
 
     public var walletState: WalletState { WalletState(code: walletStateCode) }
     public var walletReady: Bool { walletState == .ready }
@@ -39,6 +40,21 @@ public struct Info: Decodable, Sendable {
         case walletType = "WalletType"
         case walletStateCode = "WalletState"
         case identityPubKey = "IdentityPubKey"
+        case manifestHash = "ManifestHash"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decode(String.self, forKey: .version)
+        commit = try c.decode(String.self, forKey: .commit)
+        network = try c.decode(String.self, forKey: .network)
+        blockHeight = try c.decode(Int64.self, forKey: .blockHeight)
+        serverConnected = try c.decode(Bool.self, forKey: .serverConnected)
+        walletType = try c.decode(String.self, forKey: .walletType)
+        walletStateCode = try c.decode(Int.self, forKey: .walletStateCode)
+        identityPubKey = try c.decode(String.self, forKey: .identityPubKey)
+        // Older daemons omit the manifest hash.
+        manifestHash = try c.decodeIfPresent(String.self, forKey: .manifestHash) ?? ""
     }
 }
 
@@ -78,6 +94,7 @@ public struct CreateWalletResult: Decodable, Sendable {
     public let identityPubKey: String
     public let rootFingerprint: String
     public let descriptors: [String]
+    public let manifestHash: String
     public let recoveryRan: Bool
 
     enum CodingKeys: String, CodingKey {
@@ -85,6 +102,7 @@ public struct CreateWalletResult: Decodable, Sendable {
         case identityPubKey = "IdentityPubKey"
         case rootFingerprint = "RootFingerprint"
         case descriptors = "Descriptors"
+        case manifestHash = "ManifestHash"
         case recoveryRan = "RecoveryRan"
     }
 
@@ -96,6 +114,7 @@ public struct CreateWalletResult: Decodable, Sendable {
         identityPubKey = try c.decodeIfPresent(String.self, forKey: .identityPubKey) ?? ""
         rootFingerprint = try c.decodeIfPresent(String.self, forKey: .rootFingerprint) ?? ""
         descriptors = try c.decodeIfPresent([String].self, forKey: .descriptors) ?? []
+        manifestHash = try c.decodeIfPresent(String.self, forKey: .manifestHash) ?? ""
         recoveryRan = try c.decodeIfPresent(Bool.self, forKey: .recoveryRan) ?? false
     }
 }

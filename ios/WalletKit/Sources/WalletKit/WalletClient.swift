@@ -67,25 +67,94 @@ public actor WalletClient {
     /// Pass `descriptors` instead of `mnemonic` to import private output
     /// descriptors that share one BIP32 master key, for example
     /// `tr(xprv.../86h/0h/0h/<0;1>/*)`; they are as sensitive as a seed.
-    /// `birthday` bounds the first rescan of a descriptor import (nil scans
-    /// from genesis) and is ignored for mnemonics.
+    /// `birthday` bounds the first rescan of an import (nil scans from genesis)
+    /// and is ignored for mnemonics.
+    ///
+    /// Pass `watchOnlyBundle`, or `watchOnlyManifest` with its `authKeys`, to
+    /// create a watch-only wallet whose keys stay on the remote signer named in
+    /// `WalletConfig`. `overrideIdentity` lets a manifest replace the identity
+    /// family. A minimal bundle and `authKeys` hold private authentication
+    /// keys, so treat them as secrets. If the signer is unreachable nothing is
+    /// stored, so call this again once it is back. If it holds other keys the
+    /// wallet is left locked (`getInfo` reports `.locked`), so restart with the
+    /// right signer settings and use `unlockWallet`.
     public func createWallet(
         walletPassword: Data,
         mnemonic: [String] = [],
         descriptors: [String] = [],
-        birthday: Date? = nil
+        birthday: Date? = nil,
+        watchOnlyBundle: String? = nil,
+        watchOnlyManifest: String? = nil,
+        authKeys: String? = nil,
+        overrideIdentity: Bool = false
     ) async throws -> CreateWalletResult {
-        guard mnemonic.isEmpty || descriptors.isEmpty else {
-            throw WalletError(message: "mnemonic and descriptors are mutually exclusive")
-        }
-        let req = CreateWalletReq(
+        let req = try WalletClient.createWalletReq(
+            walletPassword: walletPassword,
             mnemonic: mnemonic,
-            walletPassword: walletPassword.base64EncodedString(),
             descriptors: descriptors,
-            birthday: birthday.map(WalletClient.rfc3339)
+            birthday: birthday,
+            watchOnlyBundle: watchOnlyBundle,
+            watchOnlyManifest: watchOnlyManifest,
+            authKeys: authKeys,
+            overrideIdentity: overrideIdentity
         )
         let body = try encoder.encode(req)
         return try decode(await bg { try Bindings.createWallet(body) })
+    }
+
+    /// Enforces the daemon's rules, so a host gets a clear message without
+    /// booting, and builds the request.
+    static func createWalletReq(
+        walletPassword: Data,
+        mnemonic: [String] = [],
+        descriptors: [String] = [],
+        birthday: Date? = nil,
+        watchOnlyBundle: String? = nil,
+        watchOnlyManifest: String? = nil,
+        authKeys: String? = nil,
+        overrideIdentity: Bool = false
+    ) throws -> CreateWalletReq {
+        guard mnemonic.isEmpty || descriptors.isEmpty else {
+            throw WalletError(message: "mnemonic and descriptors are mutually exclusive")
+        }
+        let isWatchOnly = watchOnlyBundle != nil || watchOnlyManifest != nil
+            || authKeys != nil || overrideIdentity
+        if isWatchOnly {
+            guard mnemonic.isEmpty, descriptors.isEmpty else {
+                throw WalletError(message: "a watch-only wallet cannot also have a mnemonic or descriptors")
+            }
+            guard !walletPassword.isEmpty else {
+                throw WalletError(message: "a watch-only wallet needs a wallet password")
+            }
+            guard watchOnlyBundle?.isEmpty != true else {
+                throw WalletError(message: "watchOnlyBundle must not be empty")
+            }
+            guard watchOnlyManifest?.isEmpty != true else {
+                throw WalletError(message: "watchOnlyManifest must not be empty")
+            }
+            guard authKeys?.isEmpty != true else {
+                throw WalletError(message: "authKeys must not be empty")
+            }
+            guard (watchOnlyBundle == nil) != (watchOnlyManifest == nil) else {
+                throw WalletError(message: "exactly one of watchOnlyBundle and watchOnlyManifest is required")
+            }
+            guard watchOnlyManifest == nil || authKeys != nil else {
+                throw WalletError(message: "a watchOnlyManifest requires its authKeys")
+            }
+            guard watchOnlyBundle == nil || (authKeys == nil && !overrideIdentity) else {
+                throw WalletError(message: "authKeys and overrideIdentity apply only to a watchOnlyManifest")
+            }
+        }
+        return CreateWalletReq(
+            mnemonic: mnemonic,
+            walletPassword: walletPassword.base64EncodedString(),
+            descriptors: descriptors,
+            birthday: birthday.map(WalletClient.rfc3339),
+            watchOnlyBundle: watchOnlyBundle.map { Data($0.utf8).base64EncodedString() },
+            watchOnlyManifest: watchOnlyManifest.map { Data($0.utf8).base64EncodedString() },
+            authKeys: authKeys.map { Data($0.utf8).base64EncodedString() },
+            overrideIdentity: overrideIdentity
+        )
     }
 
     /// The wallet's tr (BIP86) and wpkh (BIP84) output descriptors. By default
@@ -290,16 +359,24 @@ public actor WalletClient {
 }
 
 // Request bodies. Keys match the Go DTO field names (PascalCase).
-private struct CreateWalletReq: Encodable {
+struct CreateWalletReq: Encodable {
     let mnemonic: [String]
     let walletPassword: String
     let descriptors: [String]
     let birthday: String?
+    let watchOnlyBundle: String?
+    let watchOnlyManifest: String?
+    let authKeys: String?
+    let overrideIdentity: Bool
     enum CodingKeys: String, CodingKey {
         case mnemonic = "Mnemonic"
         case walletPassword = "WalletPassword"
         case descriptors = "Descriptors"
         case birthday = "Birthday"
+        case watchOnlyBundle = "WatchOnlyBundle"
+        case watchOnlyManifest = "WatchOnlyManifest"
+        case authKeys = "AuthKeys"
+        case overrideIdentity = "OverrideIdentity"
     }
 }
 

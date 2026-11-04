@@ -8,6 +8,9 @@ import PackageDescription
 // not committed here. Before building this package, run `make mobile-ios` in a
 // wavelength checkout and copy the result to Frameworks/Wavewalletdk.xcframework
 // (see ios/README.md). The scripts/fetch-xcframework.sh helper does this.
+//
+// The xcframework has iOS slices only, so run the tests on a simulator with
+// xcodebuild; `swift test` builds for macOS and cannot link it.
 let package = Package(
     name: "WalletKit",
     platforms: [.iOS(.v15)],
@@ -22,6 +25,10 @@ let package = Package(
         .target(
             name: "WalletKit",
             dependencies: ["Wavewalletdk"]
+        ),
+        .testTarget(
+            name: "WalletKitTests",
+            dependencies: ["WalletKit"]
         ),
     ]
 )

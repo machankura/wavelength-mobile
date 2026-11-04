@@ -73,6 +73,17 @@ WAVELENGTH_DIR=/path/to/wavelength ./scripts/fetch-xcframework.sh
 The source build (`make mobile-ios`) runs on macOS with Xcode installed and
 cross-compiles the embedded daemon for device + simulator slices.
 
+## Run the tests
+
+`WalletKitTests` covers the request rules and JSON, and the lenient decoding. It
+needs the framework staged as above. The framework has iOS slices only, so run
+the tests on a simulator; `swift test` builds for macOS and cannot link it:
+
+```bash
+cd ios/WalletKit
+xcodebuild test -scheme WalletKit -destination 'platform=iOS Simulator,name=iPhone 16'
+```
+
 ## The generated symbol prefix
 
 gomobile names the generated free functions after the Go package, so they are
